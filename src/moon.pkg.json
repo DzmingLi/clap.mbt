@@ -1,1 +1,8 @@
-{ }
+{
+  "import": [
+    "moonbitlang/core/hashmap",
+    "moonbitlang/core/hashset",
+    "moonbitlang/core/string",
+    "moonbitlang/core/test"
+  ]
+}

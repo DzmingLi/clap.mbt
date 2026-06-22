@@ -2,9 +2,9 @@
 package "DzmingLi/clap"
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/hashmap",
   "moonbitlang/core/hashset",
-  "moonbitlang/core/strconv",
 }
 
 // Values
@@ -18,7 +18,8 @@ pub(all) suberror ParserError {
   InvalidArgumentValueLength(String)
   TooManyArgs(String)
   InvalidSpec(String)
-} derive(Show)
+} derive(@debug.Debug)
+pub impl Show for ParserError
 
 // Types and methods
 pub(all) enum Arg {
@@ -49,9 +50,10 @@ pub(all) enum Nargs {
   AtLeast(UInt)
   AtMost(UInt)
   Range(UInt, UInt)
-} derive(Eq, Show)
+} derive(Eq)
 pub fn Nargs::is_exceeded(Self, UInt) -> Bool
 pub fn Nargs::is_valid_length(Self, UInt) -> Bool
+pub impl Show for Nargs
 
 pub(all) struct Parser {
   prog : String
@@ -69,7 +71,7 @@ pub(all) struct SimpleValue {
   flags : @hashmap.HashMap[String, Bool]
   positional_args : Array[String]
   mut subcmd : SimpleValue?
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn[T : BasicValue] SimpleValue::get_array(Self, String) -> Array[T] raise ParserError
 pub fn SimpleValue::get_flag(Self, String) -> Bool?
 pub fn[T : BasicValue] SimpleValue::get_one(Self, String) -> T raise ParserError
@@ -89,7 +91,7 @@ pub fn SubCommand::new(args? : Map[String, Arg], subcmds? : Map[String, Self], h
 
 // Traits
 pub(open) trait BasicValue {
-  fn parse(String) -> Self raise @strconv.StrConvError
+  fn parse(String) -> Self raise
 }
 pub impl BasicValue for Int
 pub impl BasicValue for Int64

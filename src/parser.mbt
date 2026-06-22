@@ -34,7 +34,21 @@ pub(all) suberror ParserError {
   InvalidArgumentValueLength(String)
   TooManyArgs(String)
   InvalidSpec(String)
-} derive(Show)
+} derive(Debug)
+
+///|
+pub impl Show for ParserError with fn output(self, logger) {
+  let (name, msg) = match self {
+    InvalidArgumentName(msg) => ("InvalidArgumentName", msg)
+    InvalidSubCommandName(msg) => ("InvalidSubCommandName", msg)
+    InvalidPositionalAsNamed(msg) => ("InvalidPositionalAsNamed", msg)
+    InvalidArgumentValue(msg) => ("InvalidArgumentValue", msg)
+    InvalidArgumentValueLength(msg) => ("InvalidArgumentValueLength", msg)
+    TooManyArgs(msg) => ("TooManyArgs", msg)
+    InvalidSpec(msg) => ("InvalidSpec", msg)
+  }
+  logger.write_string("\{name}(\{msg})")
+}
 
 ///|
 /// Parse the command line arguments
@@ -50,7 +64,7 @@ pub fn[V : Value] Parser::parse(
   let mut args = self.args
   let mut positional_arg : (String, Arg)? = None
   let mut subcmds = self.subcmds
-  let args_length : @hashmap.HashMap[String, UInt] = @hashmap.new()
+  let args_length : @hashmap.HashMap[String, UInt] = @hashmap.HashMap([])
   let mut current_value = value
   let mut current_arg : (String, Arg)? = None
   let mut nargs_error : ParserError? = None
@@ -88,9 +102,9 @@ pub fn[V : Value] Parser::parse(
       // == Named argument value ==
       value_string if current_arg is Some((name, arg)) => {
         if arg.choices() is Some(choices) {
-          if choices.length() > 0 && not(choices.contains(value_string)) {
+          if choices.length() > 0 && !choices.contains(value_string) {
             raise InvalidArgumentValue(
-              "Invalid argument value for \{cmd_name} => \{name}, value=\{value_string}, choices=\{choices}",
+              "Invalid argument value for \{cmd_name} => \{name}, value=\{value_string}, choices=\{(choices.to_array()..sort()).join(", ")}",
             )
           }
         }
@@ -103,7 +117,7 @@ pub fn[V : Value] Parser::parse(
             "Argument length limit: \{nargs}, current length: \{new_length}",
           )
         }
-        if (not(positional_arg.is_empty()) || not(subcmds.is_empty())) &&
+        if (positional_arg is Some(_) || !subcmds.is_empty()) &&
           nargs.is_exceeded(new_length + 1) {
           current_arg = None
         }
@@ -112,7 +126,7 @@ pub fn[V : Value] Parser::parse(
         if name == "help" {
           return Some(self.gen_help_message(subcmd_chains, global_args))
         }
-        let name = name.to_string()
+        let name = name.to_owned()
         let found_arg = match args.get(name) {
           Some(arg) => named_arg_or_none(arg)
           None =>
@@ -147,7 +161,7 @@ pub fn[V : Value] Parser::parse(
               },
               fn(x) { Some(x) },
             )
-          if new_arg.is_empty() &&
+          if new_arg is None &&
             short_char.is_ascii_digit() &&
             positional_arg is Some(arg) {
             current_value.add_value(arg.0, cli_arg, true)
@@ -208,7 +222,7 @@ pub fn[V : Value] Parser::parse(
 ///|
 fn get_defaults(arg : Arg, env_vars : Map[String, String]) -> Iter[StringView] {
   let common = arg.common()
-  if not(common.env_var.is_empty()) &&
+  if !common.env_var.is_empty() &&
     env_vars.get(common.env_var) is Some(env_value) {
     let value_delimiter = arg.value_delimiter().unwrap()
     env_value.split(value_delimiter)
@@ -299,7 +313,7 @@ fn analysis_and_check_spec(
   for name, arg in args.iter2() {
     let positional = arg is Positional(_)
     if positional {
-      if not(subcmds.is_empty()) {
+      if !subcmds.is_empty() {
         raise InvalidSpec(
           "Invalid argument spec: sub-commands(parent=\{cmd_name}) and positional argument(\{name}) are not allowed at the same time",
         )
@@ -318,18 +332,18 @@ fn analysis_and_check_spec(
     }
     if arg.short() is Some(short_char) {
       if short_char != null_short &&
-        not(short_char.is_ascii_alphabetic()) &&
-        not(short_char.is_ascii_digit()) {
+        !short_char.is_ascii_alphabetic() &&
+        !short_char.is_ascii_digit() {
         raise InvalidSpec(
           "Invalid argument spec: parent-cmd=\{cmd_name}, name=\{name}, short=\{short_char}, only 0-9,a-z,A-Z is allowed",
         )
       }
     }
-    if arg.choices() is Some(choices) && not(choices.is_empty()) {
+    if arg.choices() is Some(choices) && !choices.is_empty() {
       for value in get_defaults(arg, env_vars) {
-        if not(choices.contains(value.to_string())) {
+        if !choices.contains(value.to_owned()) {
           raise InvalidSpec(
-            "Invalid argument, name=\{name}, default value=\{value} not in choices=\{choices}",
+            "Invalid argument, name=\{name}, default value=\{value} not in choices=\{(choices.to_array()..sort()).join(", ")}",
           )
         }
       }
@@ -365,7 +379,7 @@ fn[V : Value] complete_level(
       let positional = arg is Positional(..)
       let mut length = args_length.get_or_default(name, 0)
       // flag and named argument can only presented in final subcommand
-      if (arg is Flag(_) || arg is Named(_)) && length > 0 && not(final_subcmd) {
+      if (arg is Flag(_) || arg is Named(_)) && length > 0 && !final_subcmd {
         raise InvalidArgumentValueLength(
           "Invalid argument: \{name}, flag/named argument can only presented in final level",
         )
@@ -373,7 +387,7 @@ fn[V : Value] complete_level(
       if arg is Flag(store~, ..) {
         if length == 0 {
           let common = arg.common()
-          let value = if not(common.env_var.is_empty()) &&
+          let value = if !common.env_var.is_empty() &&
             env_vars.get(common.env_var) is Some(env_value) {
             match env_value {
               "true" => true
@@ -384,7 +398,7 @@ fn[V : Value] complete_level(
                 )
             }
           } else {
-            not(store)
+            !store
           }
           current_value.set_flag(name, value)
           update_args_length(args_length, name)
@@ -398,17 +412,17 @@ fn[V : Value] complete_level(
         // Set defaults for:
         //   * final level positional argument
         //   * non-final level named argument
-        if length == 0 && not(positional && not(final_subcmd)) {
+        if length == 0 && !(positional && !final_subcmd) {
           for default_value in get_defaults(arg, env_vars) {
-            current_value.add_value(name, default_value.to_string(), positional)
+            current_value.add_value(name, default_value.to_owned(), positional)
             update_args_length(args_length, name)
             length += 1
           }
         }
         let nargs = arg.nargs().unwrap()
-        if not(nargs.is_valid_length(length)) {
+        if !nargs.is_valid_length(length) {
           if positional {
-            if not(final_subcmd) {
+            if !final_subcmd {
               if length != 0 {
                 raise InvalidArgumentValueLength(
                   "Invalid positional argument length=\{length}, expected: 0 (has subcommand)",
