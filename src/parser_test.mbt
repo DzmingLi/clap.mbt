@@ -170,7 +170,7 @@ enum CustomCommands {
 } derive(Show, Eq)
 
 ///|
-impl Value for CustomValue with set_flag(self, name : String, value : Bool) -> Unit raise ParserError {
+impl Value for CustomValue with fn set_flag(self, name : String, value : Bool) -> Unit raise ParserError {
   match self.subcmd {
     None => {
       guard name == "debug" else {
@@ -190,7 +190,7 @@ impl Value for CustomValue with set_flag(self, name : String, value : Bool) -> U
 }
 
 ///|
-impl Value for CustomValue with add_value(
+impl Value for CustomValue with fn add_value(
   self,
   name : String,
   value : String,
@@ -225,7 +225,7 @@ impl Value for CustomValue with add_value(
 }
 
 ///|
-impl Value for CustomValue with select_subcmd(self, name : String) -> CustomValue raise ParserError {
+impl Value for CustomValue with fn select_subcmd(self, name : String) -> CustomValue raise ParserError {
   match name {
     "subcmd1" =>
       self.subcmd = Some(SubCommand1(verbose=false, positional_args=[]))
@@ -401,6 +401,28 @@ test "parse special positional argument with -" {
   assert_eq(value.flags.is_empty(), true)
   assert_eq(value.positional_args, ["-", "-2", "xx"])
   assert_eq(value.subcmd.is_empty(), true)
+}
+
+///|
+test "parse positional arguments after passthrough marker" {
+  let parser = Parser::new(args={
+    "arg1": Arg::positional(nargs=AtMost(2), help="Argument 1"),
+  })
+  let value = SimpleValue::new(parser.prog)
+  let help_message = parser.parse(value, ["--", "--file", "-F"])
+  assert_eq(help_message, None)
+  assert_eq(value.positional_args, ["--file", "-F"])
+}
+
+///|
+test "parse named argument value starting with dash" {
+  let parser = Parser::new(args={
+    "warn-list": Arg::named(nargs=AtMost(1), help="Warnings"),
+  })
+  let value = SimpleValue::new(parser.prog)
+  let help_message = parser.parse(value, ["--warn-list", "-2"])
+  assert_eq(help_message, None)
+  assert_eq(value.args.get("warn-list").unwrap(), ["-2"])
 }
 
 ///|

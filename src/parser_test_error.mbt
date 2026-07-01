@@ -23,3 +23,29 @@ test "flag argument duplicated" {
     true,
   )
 }
+
+///|
+test "unknown long option is rejected even with positional argument" {
+  let parser = Parser::new(args={
+    "file": Arg::positional(nargs=AtMost(1), help="File"),
+  })
+  let value = SimpleValue::new(parser.prog)
+  let result = try? parser.parse(value, ["--file"])
+  assert_eq(
+    result.unwrap_err().to_string().contains("InvalidArgumentName"),
+    true,
+  )
+}
+
+///|
+test "unknown short option is rejected even with positional argument" {
+  let parser = Parser::new(args={
+    "file": Arg::positional(nargs=AtMost(1), help="File"),
+  })
+  let value = SimpleValue::new(parser.prog)
+  let result = try? parser.parse(value, ["-F"])
+  assert_eq(
+    result.unwrap_err().to_string().contains("InvalidArgumentName"),
+    true,
+  )
+}

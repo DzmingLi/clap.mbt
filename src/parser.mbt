@@ -54,66 +54,38 @@ pub fn[V : Value] Parser::parse(
   let mut current_value = value
   let mut current_arg : (String, Arg)? = None
   let mut nargs_error : ParserError? = None
+  let mut passthrough = false
   if analysis_and_check_spec(cmd_name, args, global_args, subcmds, env_vars)
     is Some(rv) {
     positional_arg = Some(rv)
   }
   for cli_arg in cli_args {
-    match cli_arg {
-      [.. "--", .. name] => {
-        if name == "help" {
-          return Some(self.gen_help_message(subcmd_chains, global_args))
-        }
-        let name = name.to_string()
-        let new_arg = args
-          .get(name)
-          .map_or_else(fn() { global_args.get(name) }, fn(x) { Some(x) })
-          .map(fn(arg) { (name, arg) })
-        if new_arg.is_empty() && positional_arg is Some(arg) {
-          current_value.add_value(arg.0, cli_arg, true)
-          update_args_length(args_length, arg.0)
-        } else {
-          current_arg = handle_current_arg(
-            current_value, cli_arg, new_arg, cmd_name, args_length,
-          )
-        }
+    if passthrough {
+      if positional_arg is Some(arg) {
+        current_value.add_value(arg.0, cli_arg, true)
+        update_args_length(args_length, arg.0)
+        continue
       }
-      [.. "-", .. rest] =>
-        if rest.char_length() != 1 {
-          if positional_arg is Some(arg) {
-            current_value.add_value(arg.0, cli_arg, true)
-            update_args_length(args_length, arg.0)
-          } else {
-            raise InvalidArgumentName(
-              "Invalid short argument name \{cli_arg} for \{cmd_name}",
-            )
-          }
-        } else {
-          let short_char = rest.get_char(0).unwrap()
-          if short_char == 'h' {
-            return Some(self.gen_help_message(subcmd_chains, global_args))
-          }
-          let new_arg = args
-            .iter()
-            .find_first(fn(pair) { pair.1.short() == Some(short_char) })
-            .map_or_else(
-              fn() {
-                global_args
-                .iter()
-                .find_first(fn(pair) { pair.1.short() == Some(short_char) })
-              },
-              fn(x) { Some(x) },
-            )
-          if new_arg.is_empty() && positional_arg is Some(arg) {
-            current_value.add_value(arg.0, cli_arg, true)
-            update_args_length(args_length, arg.0)
-          } else {
-            current_arg = handle_current_arg(
-              current_value, cli_arg, new_arg, cmd_name, args_length,
-            )
-          }
-        }
-      // == Normal argument ==
+      raise InvalidArgumentName(
+        "Invalid positional argument \{cli_arg} for \{cmd_name}",
+      )
+    }
+    if cli_arg == "--" {
+      passthrough = true
+      continue
+    }
+    if cli_arg == "-" && positional_arg is Some(arg) {
+      current_value.add_value(arg.0, cli_arg, true)
+      update_args_length(args_length, arg.0)
+      continue
+    }
+    if current_arg is Some((name, arg)) &&
+      named_arg_is_full(args_length, name, arg) &&
+      looks_like_option(cli_arg) {
+      current_arg = None
+    }
+    match cli_arg {
+      // == Named argument value ==
       value_string if current_arg is Some((name, arg)) => {
         if arg.choices() is Some(choices) {
           if choices.length() > 0 && not(choices.contains(value_string)) {
@@ -133,10 +105,59 @@ pub fn[V : Value] Parser::parse(
         }
         if (not(positional_arg.is_empty()) || not(subcmds.is_empty())) &&
           nargs.is_exceeded(new_length + 1) {
-          // Stop accepting more named arguments if nargs is full filled
           current_arg = None
         }
       }
+      [.. "--", .. name] => {
+        if name == "help" {
+          return Some(self.gen_help_message(subcmd_chains, global_args))
+        }
+        let name = name.to_string()
+        let found_arg = match args.get(name) {
+          Some(arg) => named_arg_or_none(arg)
+          None =>
+            match global_args.get(name) {
+              Some(arg) => named_arg_or_none(arg)
+              None => None
+            }
+        }
+        let new_arg = found_arg.map(fn(arg) { (name, arg) })
+        current_arg = handle_current_arg(
+          current_value, cli_arg, new_arg, cmd_name, args_length,
+        )
+      }
+      [.. "-", .. rest] =>
+        if rest.char_length() != 1 {
+          raise InvalidArgumentName(
+            "Invalid short argument name \{cli_arg} for \{cmd_name}",
+          )
+        } else {
+          let short_char = rest.get_char(0).unwrap()
+          if short_char == 'h' {
+            return Some(self.gen_help_message(subcmd_chains, global_args))
+          }
+          let new_arg = args
+            .iter()
+            .find_first(fn(pair) { pair.1.short() == Some(short_char) })
+            .map_or_else(
+              fn() {
+                global_args
+                .iter()
+                .find_first(fn(pair) { pair.1.short() == Some(short_char) })
+              },
+              fn(x) { Some(x) },
+            )
+          if new_arg.is_empty() &&
+            short_char.is_ascii_digit() &&
+            positional_arg is Some(arg) {
+            current_value.add_value(arg.0, cli_arg, true)
+            update_args_length(args_length, arg.0)
+            continue
+          }
+          current_arg = handle_current_arg(
+            current_value, cli_arg, new_arg, cmd_name, args_length,
+          )
+        }
       // == SubCommand ==
       value if subcmds.get(value) is Some(subcmd) => {
         if complete_level(
@@ -202,6 +223,39 @@ fn update_args_length(
   name : String,
 ) -> Unit {
   args_length.set(name, args_length.get_or_default(name, 0) + 1)
+}
+
+///|
+fn named_arg_is_full(
+  args_length : @hashmap.HashMap[String, UInt],
+  name : String,
+  arg : Arg,
+) -> Bool {
+  guard arg.nargs() is Some(nargs) else { return true }
+  let length = args_length.get_or_default(name, 0)
+  nargs.is_valid_length(length) && nargs.is_exceeded(length + 1)
+}
+
+///|
+fn looks_like_option(value : String) -> Bool {
+  if value == "-" || value == "--" {
+    false
+  } else if value.has_prefix("--") {
+    true
+  } else if value.has_prefix("-") {
+    let rest = value.strip_prefix("-").unwrap()
+    rest.char_length() > 0 && !rest.get_char(0).unwrap().is_ascii_digit()
+  } else {
+    false
+  }
+}
+
+///|
+fn named_arg_or_none(arg : Arg) -> Arg? {
+  match arg {
+    Positional(_) => None
+    _ => Some(arg)
+  }
 }
 
 ///|
