@@ -66,10 +66,15 @@ pub fn Parser::gen_help_message(
     builder.write_string("  \{label}  \{help}\n\n")
   }
   write_args(builder, "Options", args, {}, true)
-  if !global_args.is_empty() {
-    builder.write_char('\n')
-    write_args(builder, "Common Options", global_args, args, false)
-  }
+  // `Common Options` self-skips after culling args already shown at this level.
+  write_args(
+    builder,
+    "Common Options",
+    global_args,
+    args,
+    false,
+    leading_blank=true,
+  )
   builder.to_string()
 }
 
@@ -80,8 +85,8 @@ fn write_args(
   the_args : Map[String, Arg],
   cull_args : Map[String, Arg],
   include_help : Bool,
+  leading_blank? : Bool = false,
 ) -> Unit {
-  builder.write_string("\{title}:\n")
   let options = []
   for name, arg in the_args.iter2() {
     guard !cull_args.contains(name) else { continue }
@@ -101,6 +106,12 @@ fn write_args(
   if include_help {
     options.push(("-h,", "--help", 9, "Print help"))
   }
+  // No options to show: omit the whole section and avoid maximum().unwrap().
+  guard !options.is_empty() else { return }
+  if leading_blank {
+    builder.write_char('\n')
+  }
+  builder.write_string("\{title}:\n")
   let max_length = options.iter().map(fn(item) { item.2 }).maximum().unwrap()
   for item in options {
     let (short_string, long_string, length, help) = item
